@@ -1,0 +1,163 @@
+version: '3.8'
+
+services:
+  # Frontend
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://api-gateway:4000
+    depends_on:
+      - api-gateway
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: ./server/api-gateway
+      dockerfile: Dockerfile.dev
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./server/api-gateway:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - PORT=4000
+      - AUTH_SERVICE_URL=http://auth-service:4001
+      - ML_SERVICE_URL=http://ml-service:4002
+      - ANALYTICS_SERVICE_URL=http://analytics-service:4003
+    depends_on:
+      - auth-service
+      - ml-service
+      - analytics-service
+      - postgres
+      - redis
+
+  # Auth Service
+  auth-service:
+    build:
+      context: ./server/auth-service
+      dockerfile: Dockerfile.dev
+    ports:
+      - "4001:4001"
+    volumes:
+      - ./server/auth-service:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - PORT=4001
+      - POSTGRES_URL=postgres://user:password@postgres:5432/healthcare
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+
+  # ML Service
+  ml-service:
+    build:
+      context: ./server/ml-service
+      dockerfile: Dockerfile.dev
+    ports:
+      - "4002:4002"
+    volumes:
+      - ./server/ml-service:/app
+      - /app/models:/app/models
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MODEL_PATH=/app/models
+      - TIMESCALE_URL=postgres://user:password@timescaledb:5432/healthcare_ts
+    depends_on:
+      - timescaledb
+      - rabbitmq
+
+  # Analytics Service
+  analytics-service:
+    build:
+      context: ./server/analytics-service
+      dockerfile: Dockerfile.dev
+    ports:
+      - "4003:4003"
+    volumes:
+      - ./server/analytics-service:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TIMESCALE_URL=postgres://user:password@timescaledb:5432/healthcare_ts
+    depends_on:
+      - timescaledb
+      - rabbitmq
+
+  # Databases
+  postgres:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=healthcare
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=healthcare_ts
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+
+  # Cache
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # Message Queue
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=user
+      - RABBITMQ_DEFAULT_PASS=password
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  # Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+volumes:
+  postgres_data:
+  timescale_data:
+  redis_data:
+  rabbitmq_data:
+  prometheus_data:
+  grafana_data:
