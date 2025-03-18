@@ -6,8 +6,10 @@ import { Pool } from 'pg';
 import { config } from './config';
 import { UserService } from './services/userService';
 import { AuthController } from './controllers/authController';
+import { ProfileController } from './controllers/profileController';
 import { errorHandler } from './middleware/errorHandler';
 import { loginRateLimiter, generalRateLimiter } from './middleware/rateLimiter';
+import { authenticate } from './middleware/auth';
 
 async function startServer() {
   const app = express();
@@ -33,6 +35,7 @@ async function startServer() {
   // Initialize services and controllers
   const userService = new UserService(pool);
   const authController = new AuthController(userService);
+  const profileController = new ProfileController(userService);
 
   // Basic middleware
   app.use(cors());
@@ -42,14 +45,17 @@ async function startServer() {
   // Apply general rate limiter to all routes
   app.use(generalRateLimiter);
 
-  // Add new reset password routes
-  app.post('/auth/password-reset-request', authController.requestPasswordReset);
-  app.post('/auth/password-reset', authController.resetPassword);
-
-  // Routes with specific rate limiters
+  // Auth routes
   app.post('/auth/register', loginRateLimiter, authController.register);
   app.post('/auth/login', loginRateLimiter, authController.login);
   app.get('/auth/verify', authController.verifyToken);
+  app.post('/auth/password-reset-request', loginRateLimiter, authController.requestPasswordReset);
+  app.post('/auth/password-reset', authController.resetPassword);
+
+  // Profile routes (protected by authentication)
+  app.get('/profile', authenticate, profileController.getProfile);
+  app.put('/profile', authenticate, profileController.updateProfile);
+  app.post('/profile/password', authenticate, loginRateLimiter, profileController.changePassword);
 
   // Error handling
   app.use(errorHandler);

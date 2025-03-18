@@ -4,17 +4,24 @@ import { UserService } from '../services/userService';
 import { ValidationError } from '../utils/errors';
 import { validateProfileUpdate, validatePasswordChange } from '../utils/validation';
 
+interface RequestWithUser extends Request {
+  user?: {
+    id: string;
+    email: string;
+    role: string;
+  };
+}
+
 export class ProfileController {
   constructor(private userService: UserService) {}
 
-  getProfile = async (req: Request, res: Response): Promise<void> => {
+  getProfile = async (req: RequestWithUser, res: Response): Promise<void> => {
     try {
-      const userId = req.user?.id;
-      if (!userId) {
+      if (!req.user?.id) {
         throw new ValidationError('User not authenticated');
       }
 
-      const profile = await this.userService.getFullProfile(userId);
+      const profile = await this.userService.getFullProfile(req.user.id);
       res.json(profile);
     } catch (error) {
       console.error('Get profile error:', error);
@@ -22,20 +29,20 @@ export class ProfileController {
     }
   };
 
-  updateProfile = async (req: Request, res: Response): Promise<void> => {
+  updateProfile = async (req: RequestWithUser, res: Response): Promise<void> => {
     try {
-      const userId = req.user?.id;
-      if (!userId) {
+      if (!req.user?.id) {
         throw new ValidationError('User not authenticated');
       }
 
       const updateData = validateProfileUpdate(req.body);
       
       let updatedProfile;
-      if (req.user.role === 'doctor' || req.user.role === 'staff') {
-        updatedProfile = await this.userService.updateMedicalProfile(userId, updateData);
+      // Check both user and role existence before using
+      if (req.user?.role === 'doctor' || req.user?.role === 'staff') {
+        updatedProfile = await this.userService.updateMedicalProfile(req.user.id, updateData);
       } else {
-        updatedProfile = await this.userService.updateProfile(userId, updateData);
+        updatedProfile = await this.userService.updateProfile(req.user.id, updateData);
       }
 
       res.json(updatedProfile);
@@ -49,16 +56,15 @@ export class ProfileController {
     }
   };
 
-  changePassword = async (req: Request, res: Response): Promise<void> => {
+  changePassword = async (req: RequestWithUser, res: Response): Promise<void> => {
     try {
-      const userId = req.user?.id;
-      if (!userId) {
+      if (!req.user?.id) {
         throw new ValidationError('User not authenticated');
       }
 
       const { currentPassword, newPassword } = validatePasswordChange(req.body);
       
-      await this.userService.changePassword(userId, currentPassword, newPassword);
+      await this.userService.changePassword(req.user.id, currentPassword, newPassword);
       res.json({ message: 'Password changed successfully' });
     } catch (error) {
       if (error instanceof ValidationError) {

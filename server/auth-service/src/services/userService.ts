@@ -7,6 +7,8 @@ import { DatabaseError } from '../utils/errors';
 import { generateResetToken, hashResetToken } from '../utils/resetToken';
 
 export class UserService {
+  private static readonly EXCLUDED_FIELDS: string[] = ['password', 'reset_token', 'reset_token_expires'];
+  
   constructor(private pool: Pool) {}
 
   async findByEmail(email: string): Promise<User | null> {
@@ -103,39 +105,6 @@ export class UserService {
     }
   }
 
-  async updateProfile(userId: string, data: ProfileUpdateData): Promise<User> {
-    try {
-      const updateFields: string[] = [];
-      const values: any[] = [];
-      let valueIndex = 1;
-
-      // Build dynamic update query
-      Object.entries(data).forEach(([key, value]) => {
-        if (value !== undefined) {
-          updateFields.push(`${this.toSnakeCase(key)} = $${valueIndex}`);
-          values.push(value);
-          valueIndex++;
-        }
-      });
-
-      if (updateFields.length === 0) {
-        throw new Error('No fields to update');
-      }
-
-      values.push(userId);
-      const query = `
-        UPDATE users 
-        SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP 
-        WHERE id = $${valueIndex}
-        RETURNING *
-      `;
-
-      const result = await this.pool.query(query, values);
-      return result.rows[0];
-    } catch (error) {
-      throw new DatabaseError('Error updating profile', error);
-    }
-  }
 
   async updateMedicalProfile(userId: string, data: MedicalProfile): Promise<User> {
     try {
@@ -224,9 +193,52 @@ export class UserService {
         throw new Error('User not found');
       }
 
-      return result.rows[0];
+      // Remove sensitive information
+      const profile = { ...result.rows[0] };
+      UserService.EXCLUDED_FIELDS.forEach((field: string) => delete profile[field]);
+
+      return profile;
     } catch (error) {
       throw new DatabaseError('Error fetching profile', error);
+    }
+  }
+
+  async updateProfile(userId: string, data: ProfileUpdateData): Promise<User> {
+    try {
+      const updateFields: string[] = [];
+      const values: any[] = [];
+      let valueIndex = 1;
+
+      // Build dynamic update query
+      Object.entries(data).forEach(([key, value]) => {
+        if (value !== undefined) {
+          updateFields.push(`${this.toSnakeCase(key)} = $${valueIndex}`);
+          values.push(value);
+          valueIndex++;
+        }
+      });
+
+      if (updateFields.length === 0) {
+        throw new Error('No fields to update');
+      }
+
+      values.push(userId);
+      const query = `
+        UPDATE users 
+        SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP 
+        WHERE id = $${valueIndex}
+        RETURNING *
+      `;
+
+      const result = await this.pool.query(query, values);
+      
+      // Remove sensitive information before returning
+      const profile = { ...result.rows[0] };
+      UserService.EXCLUDED_FIELDS.forEach((field: string) => delete profile[field]);
+      
+      return profile;
+    } catch (error) {
+      throw new DatabaseError('Error updating profile', error);
     }
   }
 

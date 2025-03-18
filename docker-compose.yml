@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Frontend
   client:
@@ -35,8 +33,6 @@ services:
     depends_on:
       - auth-service
       - ml-service
-      - analytics-service
-      - postgres
       - redis
 
   # Auth Service
@@ -52,8 +48,13 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=4001
-      - POSTGRES_URL=postgres://user:password@postgres:5432/healthcare
-      - REDIS_URL=redis://redis:6379
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_NAME=healthcare
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     depends_on:
       - postgres
       - redis
@@ -67,16 +68,25 @@ services:
       - "4002:4002"
     volumes:
       - ./server/ml-service:/app
-      - /app/models:/app/models
     environment:
       - PYTHONUNBUFFERED=1
-      - MODEL_PATH=/app/models
-      - TIMESCALE_URL=postgres://user:password@timescaledb:5432/healthcare_ts
+      - JWT_SECRET_KEY=your-secret-key-for-development
+      - AUTH_SERVICE_URL=http://auth-service:4001
     depends_on:
-      - timescaledb
-      - rabbitmq
+      - auth-service
 
-  # Analytics Service
+  #Analytics Service
+  timescaledb-analytics:  # Changed name to avoid conflict
+    image: timescale/timescaledb:latest-pg15
+    ports:
+      - "5434:5432"  # Changed port to avoid conflict with existing TimescaleDB
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=healthcare_analytics
+    volumes:
+      - timescaledb_analytics_data:/var/lib/postgresql/data
+
   analytics-service:
     build:
       context: ./server/analytics-service
@@ -87,10 +97,17 @@ services:
       - ./server/analytics-service:/app
     environment:
       - PYTHONUNBUFFERED=1
-      - TIMESCALE_URL=postgres://user:password@timescaledb:5432/healthcare_ts
+      - DB_HOST=timescaledb-analytics
+      - DB_PORT=5432
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_NAME=healthcare_analytics
+      - REDIS_URL=redis://redis:6379
+      - AUTH_SERVICE_URL=http://auth-service:4001
     depends_on:
-      - timescaledb
-      - rabbitmq
+      - timescaledb-analytics
+      - redis
+      - auth-service
 
   # Databases
   postgres:
@@ -104,17 +121,6 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-  timescaledb:
-    image: timescale/timescaledb:latest-pg15
-    ports:
-      - "5433:5432"
-    environment:
-      - POSTGRES_USER=user
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=healthcare_ts
-    volumes:
-      - timescale_data:/var/lib/postgresql/data
-
   # Cache
   redis:
     image: redis:7-alpine
@@ -123,41 +129,8 @@ services:
     volumes:
       - redis_data:/data
 
-  # Message Queue
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    environment:
-      - RABBITMQ_DEFAULT_USER=user
-      - RABBITMQ_DEFAULT_PASS=password
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-
-  # Monitoring
-  prometheus:
-    image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./monitoring/prometheus:/etc/prometheus
-      - prometheus_data:/prometheus
-
-  grafana:
-    image: grafana/grafana:latest
-    ports:
-      - "3001:3000"
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-    volumes:
-      - grafana_data:/var/lib/grafana
-
 volumes:
   postgres_data:
-  timescale_data:
   redis_data:
-  rabbitmq_data:
-  prometheus_data:
-  grafana_data:
+  timescaledb_analytics_data:
+
